@@ -1,4 +1,5 @@
-import SamplePage from './pages/SamplePage';
+import HomePage from './pages/HomePage';
+import ResultPage from './pages/ResultPage';
 import type { ReactNode } from 'react';
 
 interface RouteConfig {
@@ -10,10 +11,15 @@ interface RouteConfig {
 
 const routes: RouteConfig[] = [
   {
-    name: 'Sample Page',
+    name: '首页',
     path: '/',
-    element: <SamplePage />
-  }
+    element: <HomePage />,
+  },
+  {
+    name: '生成结果',
+    path: '/result/:generationId',
+    element: <ResultPage />,
+  },
 ];
 
 export default routes;
