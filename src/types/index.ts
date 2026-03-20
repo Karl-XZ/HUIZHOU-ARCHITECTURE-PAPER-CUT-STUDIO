@@ -5,7 +5,6 @@ export interface Option {
   withCount?: boolean;
 }
 
-// 生成记录类型
 export interface Generation {
   id: string;
   created_at: string;
@@ -21,10 +20,10 @@ export interface Generation {
   status: 'pending' | 'processing' | 'completed' | 'failed';
   task_ids: string[];
   result_images: string[];
+  failed_count?: number;
   error_message?: string;
 }
 
-// 收藏类型
 export interface Favorite {
   id: string;
   created_at: string;
@@ -32,7 +31,12 @@ export interface Favorite {
   image_url: string;
 }
 
-// 生成请求类型
+export interface CandidatePlan {
+  prompt: string;
+  uploadedImages: string[];
+  variantLabel?: string;
+}
+
 export interface GenerationRequest {
   uploadedImages: string[];
   basePrompt: string;
@@ -43,9 +47,9 @@ export interface GenerationRequest {
   aiCompletionPrompt?: string;
   finalPrompt: string;
   generationCount: number;
+  candidatePlans?: CandidatePlan[];
 }
 
-// 任务状态类型
 export interface TaskStatus {
   taskId: string;
   status: 'PENDING' | 'PROCESSING' | 'SUCCESS' | 'FAILED' | 'TIMEOUT';
@@ -53,7 +57,6 @@ export interface TaskStatus {
   error?: string;
 }
 
-// 生成进度类型
 export interface GenerationProgress {
   status: 'processing' | 'completed' | 'failed';
   progress?: {

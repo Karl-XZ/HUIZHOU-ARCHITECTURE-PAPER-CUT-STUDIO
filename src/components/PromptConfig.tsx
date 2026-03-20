@@ -1,8 +1,6 @@
 import React from 'react';
-import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Checkbox } from '@/components/ui/checkbox';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
 interface PromptConfigProps {
   basePrompt: string;
@@ -26,77 +24,73 @@ export function PromptConfig({
   onAiCompletionPromptChange,
 }: PromptConfigProps) {
   return (
-    <div className="space-y-6">
-      {/* 基础提示词 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">基础提示词</CardTitle>
-          <CardDescription>描述徽派建筑的核心特征</CardDescription>
-        </CardHeader>
-        <CardContent>
+    <div className="hui-form-stack">
+      <section className="hui-form-card">
+        <div className="hui-card-head">
+          <div>
+            <h4 className="hui-card-title">基础提示词</h4>
+            <p className="hui-card-desc">用一句较长的描述固定主体题材、黑白关系和画面尺寸。</p>
+          </div>
+          <span className="hui-card-badge">基础语义</span>
+        </div>
+        <div>
           <Textarea
             value={basePrompt}
             onChange={(e) => onBasePromptChange(e.target.value)}
             placeholder="输入建筑特征描述..."
-            className="min-h-24 resize-none"
+            className="hui-textarea"
           />
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      {/* 二维转化提示词 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">二维转化提示词</CardTitle>
-          <CardDescription>定义刻纸风格的转化效果</CardDescription>
-        </CardHeader>
-        <CardContent>
+      <section className="hui-form-card">
+        <div className="hui-card-head">
+          <div>
+            <h4 className="hui-card-title">二维转化提示词</h4>
+            <p className="hui-card-desc">强调平面化透视、镂空雕刻和黑白剪纸的视觉语言。</p>
+          </div>
+          <span className="hui-card-badge">造型约束</span>
+        </div>
+        <div>
           <Textarea
             value={transformPrompt}
             onChange={(e) => onTransformPromptChange(e.target.value)}
             placeholder="输入转化效果描述..."
-            className="min-h-24 resize-none"
+            className="hui-textarea"
           />
-        </CardContent>
-      </Card>
+        </div>
+      </section>
 
-      {/* AI 补全提示词 */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-start justify-between">
-            <div className="space-y-1">
-              <CardTitle className="text-lg">AI 补全提示词</CardTitle>
-              <CardDescription>当素材不足时，AI 自动补全建筑结构</CardDescription>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Checkbox
-                id="ai-completion"
-                checked={aiCompletionEnabled}
-                onCheckedChange={(checked) => onAiCompletionEnabledChange(checked === true)}
-              />
-              <Label
-                htmlFor="ai-completion"
-                className="text-sm font-medium cursor-pointer"
-              >
-                启用 AI 补全
-              </Label>
-            </div>
+      <section className="hui-form-card">
+        <div className="hui-card-head">
+          <div>
+            <h4 className="hui-card-title">AI 补全提示词</h4>
+            <p className="hui-card-desc">当素材视角不够完整时，让模型补出缺失的建筑构件和空间关系。</p>
           </div>
-        </CardHeader>
-        <CardContent>
+          <label className="hui-toggle" htmlFor="ai-completion">
+            <Checkbox
+              id="ai-completion"
+              className="hui-check"
+              checked={aiCompletionEnabled}
+              onCheckedChange={(checked) => onAiCompletionEnabledChange(checked === true)}
+            />
+            <span>启用 AI 补全</span>
+          </label>
+        </div>
+
+        <div>
           <Textarea
             value={aiCompletionPrompt}
             onChange={(e) => onAiCompletionPromptChange(e.target.value)}
             placeholder="输入 AI 补全规则..."
-            className="min-h-24 resize-none"
+            className="hui-textarea"
             disabled={!aiCompletionEnabled}
           />
           {!aiCompletionEnabled && (
-            <p className="text-xs text-muted-foreground mt-2">
-              💡 上传图片少于 2 张时将自动启用
-            </p>
+            <p className="hui-hint mt-3">上传图片少于 2 张时，系统会自动启用结构补全。</p>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </section>
     </div>
   );
 }

@@ -2,9 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { ResultGrid } from '@/components/ResultGrid';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Progress } from '@/components/ui/progress';
-import { ArrowLeft, Download, RefreshCw, Loader2 } from 'lucide-react';
+import { ArrowLeft, Download, Loader2, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { checkGenerationStatus, getGeneration, addFavorite, removeFavorite, getFavorites } from '@/db/api';
 import { downloadImage, downloadImagesAsZip } from '@/lib/image-utils';
@@ -164,139 +162,151 @@ export default function ResultPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* 头部 */}
-      <header className="border-b border-border bg-card">
-        <div className="container mx-auto px-4 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <Button variant="outline" size="icon" onClick={handleRegenerate}>
-                <ArrowLeft className="w-5 h-5" />
-              </Button>
-              <div>
-                <h1 className="text-2xl font-bold text-foreground">生成结果</h1>
-                <p className="text-sm text-muted-foreground">
-                  {generation?.created_at && new Date(generation.created_at).toLocaleString('zh-CN')}
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button
-                variant="outline"
-                onClick={handleRegenerate}
-                disabled={isPolling}
-              >
-                <RefreshCw className="w-4 h-4 mr-2" />
-                重新生成
-              </Button>
-              <Button
-                onClick={handleBatchDownload}
-                disabled={!generation?.result_images || generation.result_images.length === 0 || isDownloading}
-              >
-                {isDownloading ? (
-                  <>
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                    下载中...
-                  </>
-                ) : (
-                  <>
-                    <Download className="w-4 h-4 mr-2" />
-                    批量下载
-                  </>
-                )}
-              </Button>
+    <div className="hui-page">
+      <div className="hui-shell">
+        <header className="hui-topbar">
+          <div className="hui-brand">
+            <span className="hui-brand-mark">徽</span>
+            <div className="hui-brand-copy">
+              <h1 className="hui-brand-title">徽纸艺境</h1>
+              <p className="hui-brand-subtitle">生成结果与候选画面</p>
             </div>
           </div>
-        </div>
-      </header>
 
-      {/* 主内容 */}
-      <main className="container mx-auto px-4 py-8">
-        {/* 进度显示 */}
-        {isPolling && progress && (
-          <Card className="mb-8">
-            <CardContent className="p-6">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-lg font-semibold text-foreground">
-                      正在生成中...
-                    </h3>
-                    <p className="text-sm text-muted-foreground">
-                      {progress.progress && (
-                        <>
-                          已完成 {progress.progress.success + progress.progress.failed} / {progress.progress.total} 个任务
-                          {progress.progress.failed > 0 && (
-                            <span className="text-destructive ml-2">
-                              ({progress.progress.failed} 个失败)
-                            </span>
-                          )}
-                        </>
-                      )}
-                    </p>
-                  </div>
-                  <div className="text-2xl font-bold text-primary">
-                    {getProgressPercentage()}%
-                  </div>
-                </div>
-                <Progress value={getProgressPercentage()} className="h-2" />
-                <p className="text-xs text-muted-foreground">
-                  💡 生成过程需要 2-5 分钟，请耐心等待...
+          <div className="hui-result-actions">
+            <Button variant="outline" className="hui-button-secondary" onClick={handleRegenerate}>
+              <ArrowLeft className="h-4 w-4" />
+              返回工坊
+            </Button>
+            <Button
+              className="hui-button-primary"
+              onClick={handleBatchDownload}
+              disabled={!generation?.result_images || generation.result_images.length === 0 || isDownloading}
+            >
+              {isDownloading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  下载中...
+                </>
+              ) : (
+                <>
+                  <Download className="h-4 w-4" />
+                  批量下载
+                </>
+              )}
+            </Button>
+          </div>
+        </header>
+
+        <main>
+          <section className="hui-paper-panel hui-result-header">
+            <div>
+              <p className="hui-section-lead">结果画廊</p>
+              <h2 className="hui-section-title">候选刻纸图像</h2>
+              <p className="hui-section-description">
+                当前结果基于你上传的建筑素材和提示词生成。可放大预览、收藏喜欢的方案，或者直接批量下载全部候选图。
+              </p>
+
+              <div className="hui-result-meta">
+                <span className="hui-meta-chip">任务编号 {generationId?.slice(0, 8)}</span>
+                {generation?.created_at && (
+                  <span className="hui-meta-chip">
+                    生成时间 {new Date(generation.created_at).toLocaleString('zh-CN')}
+                  </span>
+                )}
+                <span className="hui-meta-chip">
+                  输出数量 {generation?.generation_count ?? progress?.progress?.total ?? '--'} 张
+                </span>
+              </div>
+            </div>
+
+            <div className="hui-result-actions">
+              <Button variant="outline" className="hui-button-secondary" onClick={handleRegenerate}>
+                <RefreshCw className="h-4 w-4" />
+                重新生成
+              </Button>
+            </div>
+          </section>
+
+          {isPolling && progress && (
+            <section className="hui-paper-panel hui-progress-panel">
+              <div>
+                <h3 className="hui-card-title">正在生成中</h3>
+                <p className="hui-card-desc">
+                  {progress.progress && (
+                    <>
+                      已完成 {progress.progress.success + progress.progress.failed} / {progress.progress.total} 个任务
+                      {progress.progress.failed > 0 && `，其中 ${progress.progress.failed} 个失败`}
+                    </>
+                  )}
                 </p>
               </div>
-            </CardContent>
-          </Card>
-        )}
 
-        {/* 结果展示 */}
-        <div className="space-y-6">
-          {generation?.status === 'completed' && generation.result_images && (
-            <div className="flex items-center justify-between">
-              <h2 className="text-xl font-semibold text-foreground">
-                候选图像 ({generation.result_images.length} 张)
-              </h2>
-              <p className="text-sm text-muted-foreground">
-                点击图片可放大预览，点击 ❤️ 收藏喜欢的作品
-              </p>
-            </div>
+              <div className="hui-progress-head">
+                <div className="hui-hint">
+                  生成进度会自动轮询更新，当前页面无需手动刷新。
+                </div>
+                <div className="hui-progress-value">{getProgressPercentage()}%</div>
+              </div>
+
+              <div className="hui-progress-bar">
+                <span style={{ width: `${getProgressPercentage()}%` }} />
+              </div>
+            </section>
           )}
 
-          <ResultGrid
-            images={generation?.result_images || []}
-            favorites={favorites}
-            onToggleFavorite={handleToggleFavorite}
-            onDownload={handleDownload}
-            isLoading={isPolling && !generation?.result_images}
-          />
+          <section className="hui-paper-panel hui-gallery-panel">
+            <div className="hui-gallery-header">
+              <div>
+                <h3 className="hui-card-title">
+                  {generation?.status === 'completed' && generation.result_images
+                    ? `候选图像（${generation.result_images.length} 张）`
+                    : '结果画廊'}
+                </h3>
+                <p className="hui-card-desc">
+                  点击图片可放大预览，点击心形按钮收藏喜欢的作品。
+                </p>
+              </div>
 
-          {/* 错误提示 */}
+              {favorites.size > 0 && (
+                <div className="hui-meta-chip">
+                  已收藏 {favorites.size} 张
+                </div>
+              )}
+            </div>
+
+            <ResultGrid
+              images={generation?.result_images || []}
+              favorites={favorites}
+              onToggleFavorite={handleToggleFavorite}
+              onDownload={handleDownload}
+              isLoading={isPolling && !generation?.result_images}
+            />
+          </section>
+
           {generation?.status === 'failed' && (
-            <Card className="border-destructive">
-              <CardContent className="p-6">
-                <div className="text-center space-y-4">
-                  <p className="text-lg font-semibold text-destructive">
-                    生成失败
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {generation.error_message || '未知错误'}
-                  </p>
-                  <Button onClick={handleRegenerate}>
-                    <RefreshCw className="w-4 h-4 mr-2" />
+            <section className="hui-paper-panel">
+              <div className="hui-result-empty">
+                <div className="space-y-4">
+                  <p className="text-lg font-semibold text-destructive">生成失败</p>
+                  <p className="hui-hint">{generation.error_message || '未知错误'}</p>
+                  <Button onClick={handleRegenerate} className="hui-button-primary">
+                    <RefreshCw className="h-4 w-4" />
                     重新生成
                   </Button>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </section>
           )}
-        </div>
-      </main>
+        </main>
 
-      {/* 页脚 */}
-      <footer className="border-t border-border bg-card mt-12">
-        <div className="container mx-auto px-4 py-6 text-center text-sm text-muted-foreground">
-          <p>© 2026 徽纸艺境 - 徽派建筑刻纸艺术生成系统</p>
-        </div>
-      </footer>
+        <footer className="hui-footer">
+          <p>
+            <strong>徽纸艺境</strong> 保留收藏和下载交互，结果页与首页共用同一套宣纸与朱红视觉。
+          </p>
+          <p>本地运行版 / 即时生成 / 非持久化结果</p>
+        </footer>
+      </div>
     </div>
   );
 }

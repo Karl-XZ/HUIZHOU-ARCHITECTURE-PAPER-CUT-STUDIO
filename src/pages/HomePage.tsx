@@ -1,51 +1,214 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  ArrowDown,
+  Building2,
+  Download,
+  GalleryVerticalEnd,
+  Loader2,
+  ScrollText,
+  Sparkles,
+} from 'lucide-react';
+
+import { GenerationControl } from '@/components/GenerationControl';
 import { ImageUpload } from '@/components/ImageUpload';
 import { PromptConfig } from '@/components/PromptConfig';
+import { ResultGrid } from '@/components/ResultGrid';
 import { StyleSelector, getStyleKeywords } from '@/components/StyleSelector';
-import { GenerationControl } from '@/components/GenerationControl';
-import { Card, CardContent } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
+import { Button } from '@/components/ui/button';
+import {
+  addFavorite,
+  checkGenerationStatus,
+  getFavorites,
+  removeFavorite,
+  submitGeneration,
+} from '@/db/api';
+import {
+  buildCandidatePlans,
+  downloadImage,
+  downloadImagesAsZip,
+  filesToBase64Array,
+  mergePrompts,
+} from '@/lib/image-utils';
+import type { GenerationProgress, GenerationRequest } from '@/types';
 import { toast } from 'sonner';
-import { submitGeneration } from '@/db/api';
-import { filesToBase64Array, mergePrompts } from '@/lib/image-utils';
-import type { GenerationRequest } from '@/types';
 
-// 默认提示词
-const DEFAULT_BASE_PROMPT = '徽派建筑，白墙黑瓦，马头墙，飞檐翘角，多层屋檐结构，传统中式建筑，真实光影';
-const DEFAULT_TRANSFORM_PROMPT = '将建筑转化为二维平面构图，黑白刻纸风格，高对比度，剪影效果，线条清晰，保留建筑层次感与结构特征';
-const DEFAULT_AI_COMPLETION_PROMPT = '补全不可见结构，保持徽派建筑风格一致，结构合理，对称性强，细节完整';
+const DEFAULT_BASE_PROMPT =
+  '徽派建筑场景，中国传统刻纸艺术风格，黑白剪纸效果，高对比度，正负形构成，镂空雕刻质感，细节精细，线条锐利干净，无灰度无渐变，建筑透视被平面化处理，层叠构图表现空间关系，像手工刻纸作品，画面简洁但细节丰富，纯黑底白图或白底黑图，正方构图';
+const DEFAULT_TRANSFORM_PROMPT =
+  '将建筑转化为二维平面构图，强化黑白刻纸语言、镂空关系和空间层次，保持建筑结构清晰、线条利落、画面纯净';
+const DEFAULT_AI_COMPLETION_PROMPT =
+  '在不改变徽派建筑主体识别度的前提下，补全被遮挡或缺失的结构，保持黑白刻纸构成的一致性与细节完整度';
+
+const NAV_ITEMS = [
+  { label: '风格首页', href: '#top' },
+  { label: '视觉导引', href: '#overview' },
+  { label: '创作工坊', href: '#workbench' },
+  { label: '作品画廊', href: '#live-results' },
+];
+
+const FEATURE_CARDS = [
+  {
+    id: '01',
+    title: '建筑采样',
+    description: '上传不同角度的建筑素材，保留马头墙、天井院落与檐口细节的层次信息。',
+    icon: Building2,
+  },
+  {
+    id: '02',
+    title: '语义刻画',
+    description: '用提示词统一主体、刀感、黑白关系与空间秩序，让画面风格更稳定。',
+    icon: ScrollText,
+  },
+  {
+    id: '03',
+    title: '候选成片',
+    description: '候选图按生成顺序依次铺开，方便即时预览、筛选、收藏与下载。',
+    icon: GalleryVerticalEnd,
+  },
+];
+
+const HERO_METRICS = [
+  { value: '黑白', label: '纯色剪纸表达' },
+  { value: '方幅', label: '默认正方构图' },
+  { value: '多图', label: '支持多角度输入' },
+];
 
 export default function HomePage() {
-  const navigate = useNavigate();
-
-  // 图片上传
   const [images, setImages] = useState<File[]>([]);
-
-  // 提示词配置
   const [basePrompt, setBasePrompt] = useState(DEFAULT_BASE_PROMPT);
   const [transformPrompt, setTransformPrompt] = useState(DEFAULT_TRANSFORM_PROMPT);
   const [aiCompletionEnabled, setAiCompletionEnabled] = useState(false);
   const [aiCompletionPrompt, setAiCompletionPrompt] = useState(DEFAULT_AI_COMPLETION_PROMPT);
-
-  // 风格选择
   const [styleType, setStyleType] = useState<'traditional' | 'modern' | 'custom'>('traditional');
   const [customStyleKeywords, setCustomStyleKeywords] = useState('');
-
-  // 生成配置
   const [generationCount, setGenerationCount] = useState(4);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [activeGenerationId, setActiveGenerationId] = useState<string | null>(null);
+  const [activeGenerationCount, setActiveGenerationCount] = useState(0);
+  const [generationProgress, setGenerationProgress] = useState<GenerationProgress | null>(null);
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  const [isDownloading, setIsDownloading] = useState(false);
+  const notifiedStatusRef = useRef<Set<string>>(new Set());
 
-  // 自动启用 AI 补全（图片少于 2 张）
   useEffect(() => {
     if (images.length < 2 && images.length > 0) {
       setAiCompletionEnabled(true);
     }
   }, [images.length]);
 
-  // 开始生成
+  useEffect(() => {
+    if (!activeGenerationId) {
+      setFavorites(new Set());
+      return;
+    }
+
+    const loadFavorites = async () => {
+      try {
+        const data = await getFavorites(activeGenerationId);
+        setFavorites(new Set(data.map((favorite) => favorite.image_url)));
+      } catch (error) {
+        console.error('Failed to load favorites:', error);
+      }
+    };
+
+    void loadFavorites();
+  }, [activeGenerationId]);
+
+  useEffect(() => {
+    if (!activeGenerationId) {
+      return;
+    }
+
+    let cancelled = false;
+    let intervalId: ReturnType<typeof setInterval> | null = null;
+
+    const pollStatus = async () => {
+      try {
+        const status = await checkGenerationStatus(activeGenerationId);
+        if (cancelled) {
+          return;
+        }
+
+        setGenerationProgress(status);
+
+        if (status.status === 'completed' || status.status === 'failed') {
+          if (intervalId) {
+            clearInterval(intervalId);
+          }
+
+          setIsGenerating(false);
+
+          const notificationKey = `${activeGenerationId}:${status.status}`;
+          if (!notifiedStatusRef.current.has(notificationKey)) {
+            notifiedStatusRef.current.add(notificationKey);
+
+            if (status.status === 'completed') {
+              toast.success(`已生成 ${status.resultImages?.length || 0} 张候选图`);
+            } else {
+              toast.error(status.errorMessage || '生成失败');
+            }
+          }
+        }
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        console.error('Failed to check generation status:', error);
+        setIsGenerating(false);
+        toast.error('查询生成进度失败');
+
+        if (intervalId) {
+          clearInterval(intervalId);
+        }
+      }
+    };
+
+    void pollStatus();
+    intervalId = setInterval(() => {
+      void pollStatus();
+    }, 4000);
+
+    return () => {
+      cancelled = true;
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [activeGenerationId]);
+
+  useEffect(() => {
+    if (!isGenerating && !generationProgress) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      document.getElementById('live-results')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }, 120);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [isGenerating, generationProgress, activeGenerationId]);
+
+  const liveImages = generationProgress?.resultImages || [];
+  const progressInfo = generationProgress?.progress || {
+    total: activeGenerationCount,
+    success: liveImages.length,
+    failed: 0,
+    pending: Math.max(activeGenerationCount - liveImages.length, 0),
+  };
+  const progressPercentage =
+    progressInfo.total > 0
+      ? Math.round(((progressInfo.success + progressInfo.failed) / progressInfo.total) * 100)
+      : 0;
+  const isLiveGenerating = isGenerating || generationProgress?.status === 'processing';
+  const shouldShowLiveResults = isGenerating || generationProgress !== null;
+
   const handleGenerate = async () => {
-    // 验证输入
     if (images.length === 0) {
       toast.error('请至少上传 1 张建筑照片');
       return;
@@ -57,25 +220,35 @@ export default function HomePage() {
     }
 
     setIsGenerating(true);
+    setActiveGenerationId(null);
+    setActiveGenerationCount(generationCount);
+    setGenerationProgress({
+      status: 'processing',
+      progress: {
+        total: generationCount,
+        success: 0,
+        failed: 0,
+        pending: generationCount,
+      },
+      resultImages: [],
+      taskStatuses: [],
+    });
+    setFavorites(new Set());
 
     try {
-      // 转换图片为 Base64
       toast.info('正在处理图片...');
       const base64Images = await filesToBase64Array(images);
 
-      // 获取风格关键词
       const styleKeywords = getStyleKeywords(styleType, customStyleKeywords);
-
-      // 合并提示词
       const finalPrompt = mergePrompts(
         basePrompt,
         transformPrompt,
         styleKeywords,
         aiCompletionEnabled,
-        aiCompletionPrompt
+        aiCompletionPrompt,
       );
+      const candidatePlans = buildCandidatePlans(base64Images, finalPrompt, generationCount);
 
-      // 构建请求
       const request: GenerationRequest = {
         uploadedImages: base64Images,
         basePrompt,
@@ -86,140 +259,364 @@ export default function HomePage() {
         aiCompletionPrompt,
         finalPrompt,
         generationCount,
+        candidatePlans,
       };
 
-      // 提交生成任务
       toast.info('正在提交生成任务...');
       const result = await submitGeneration(request);
-
-      // 跳转到结果页
-      navigate(`/result/${result.generationId}`);
+      setActiveGenerationId(result.generationId);
+      toast.success('候选图开始生成');
     } catch (error) {
       console.error('Generation failed:', error);
       toast.error(error instanceof Error ? error.message : '生成失败，请稍后重试');
       setIsGenerating(false);
+      setActiveGenerationCount(0);
+      setGenerationProgress(null);
+    }
+  };
+
+  const handleToggleFavorite = async (imageUrl: string) => {
+    if (!activeGenerationId) {
+      return;
+    }
+
+    try {
+      if (favorites.has(imageUrl)) {
+        await removeFavorite(activeGenerationId, imageUrl);
+        setFavorites((previous) => {
+          const next = new Set(previous);
+          next.delete(imageUrl);
+          return next;
+        });
+        toast.success('已取消收藏');
+      } else {
+        await addFavorite(activeGenerationId, imageUrl);
+        setFavorites((previous) => new Set(previous).add(imageUrl));
+        toast.success('已加入收藏');
+      }
+    } catch (error) {
+      console.error('Failed to toggle favorite:', error);
+      toast.error('收藏操作失败');
+    }
+  };
+
+  const handleDownload = async (imageUrl: string) => {
+    try {
+      await downloadImage(imageUrl);
+      toast.success('下载成功');
+    } catch (error) {
+      console.error('Download failed:', error);
+      toast.error('下载失败');
+    }
+  };
+
+  const handleBatchDownload = async () => {
+    if (liveImages.length === 0) {
+      toast.error('还没有可下载的候选图');
+      return;
+    }
+
+    setIsDownloading(true);
+    try {
+      await downloadImagesAsZip(liveImages, 'hui-paper-art');
+      toast.success('批量下载完成');
+    } catch (error) {
+      console.error('Batch download failed:', error);
+      toast.error('批量下载失败');
+    } finally {
+      setIsDownloading(false);
     }
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* 头部 */}
-      <header className="border-b border-border bg-card">
-        <div className="container mx-auto px-4 py-6">
-          <div className="text-center space-y-2">
-            <h1 className="text-4xl md:text-5xl font-bold gradient-text">
-              徽纸艺境
-            </h1>
-            <p className="text-lg text-muted-foreground">
-              徽派建筑刻纸艺术生成系统
-            </p>
-            <p className="text-sm text-muted-foreground max-w-2xl mx-auto">
-              基于 AI 生图技术的「三维建筑转二维艺术表达」生成工具，专注于徽派建筑与金坛刻纸艺术的融合创新
-            </p>
+    <div className="hui-page" id="top">
+      <div className="hui-shell">
+        <header className="hui-topbar">
+          <div className="hui-brand">
+            <span className="hui-brand-mark">徽</span>
+            <div className="hui-brand-copy">
+              <h1 className="hui-brand-title">徽纸艺境</h1>
+              <p className="hui-brand-subtitle">徽派建筑刻纸艺术生成系统</p>
+            </div>
           </div>
-        </div>
-      </header>
 
-      {/* 主内容 */}
-      <main className="container mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* 左侧：示例参考 */}
-          <div className="lg:col-span-1">
-            <Card>
-              <CardContent className="p-6 space-y-4">
+          <nav className="hui-nav" aria-label="页面导航">
+            {NAV_ITEMS.map((item) => (
+              <a key={item.label} href={item.href}>
+                {item.label}
+              </a>
+            ))}
+          </nav>
+
+          <a href="#workbench" className="hui-button-secondary hui-topbar-cta">
+            进入工坊
+          </a>
+        </header>
+
+        <main>
+          <section className="hui-hero" id="hero">
+            <div className="hui-hero-grid">
+              <div className="hui-hero-media">
+                <img src="/images/example-generated.jpg" alt="徽派建筑刻纸示例" />
+                <div className="hui-hero-badge">示例成片 / 黑白剪纸语言</div>
+              </div>
+
+              <div className="hui-hero-copy">
+                <p className="hui-kicker">Huizhou Architecture Paper-Cut Studio</p>
+                <h2 className="hui-hero-title">徽纸艺境</h2>
+                <p className="hui-hero-subtitle">让白墙黛瓦转译成刀锋分明的刻纸图像</p>
+                <div className="hui-hero-divider" />
+                <p className="hui-hero-description">
+                  徽派建筑的轮廓、院落的层层递进与飞檐的轻重起伏，在这里会被压缩成纯黑白、
+                  强对比、富有镂空节奏的刻纸画面。上传素材、设定语义，再从一组候选成片里挑出最贴近心意的一张。
+                </p>
+
+                <div className="hui-hero-actions">
+                  <a href="#workbench" className="hui-button-primary">
+                    <Sparkles className="h-4 w-4" />
+                    立即创作
+                    <ArrowDown className="h-4 w-4" />
+                  </a>
+
+                  <div className="hui-metrics">
+                    {HERO_METRICS.map((metric) => (
+                      <div key={metric.label} className="hui-metric">
+                        <strong>{metric.value}</strong>
+                        <span>{metric.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="hui-hero-wave" />
+          </section>
+
+          <section className="hui-paper-panel hui-overview" id="overview">
+            <div>
+              <p className="hui-section-lead">徽州村落 / 马头墙 / 天井院落</p>
+              <h2 className="hui-section-title">
+                以建筑层叠轮廓为骨，以黑白正负形为意，生成具有传统气息的刻纸图像
+              </h2>
+              <p className="hui-section-description">
+                画面强调构图秩序、镂空节奏与建筑识别度。你可以从基础提示词、转化提示词、
+                风格倾向与 AI 补全规则四个部分控制结果，让同一组建筑素材呈现出不同的刻纸气质。
+              </p>
+
+              <div className="hui-highlight-grid">
+                {FEATURE_CARDS.map((card) => {
+                  const Icon = card.icon;
+
+                  return (
+                    <article key={card.id} className="hui-highlight">
+                      <Icon className="hui-highlight-icon" />
+                      <span className="hui-highlight-number">{card.id}</span>
+                      <h3 className="hui-highlight-title">{card.title}</h3>
+                      <p>{card.description}</p>
+                    </article>
+                  );
+                })}
+              </div>
+
+              <div className="hui-inline-actions">
+                <a href="#workbench" className="hui-button-primary">
+                  开始创作
+                </a>
+                <p className="hui-inline-note">
+                  建议同时上传正立面、斜角与局部细节，多图输入时更容易保留建筑层次与空间关系。
+                </p>
+              </div>
+            </div>
+
+            <div className="hui-showcase">
+              <div className="hui-frame">
+                <img
+                  src="/images/example-generated-alt.jpg"
+                  alt="徽派建筑刻纸艺术作品展示"
+                />
+              </div>
+              <div className="hui-frame-tag">
+                <span className="hui-tag">示例成片 / 候选作品展示</span>
+              </div>
+            </div>
+          </section>
+
+          <section className="hui-paper-panel hui-workbench" id="workbench">
+            <div className="hui-section-head">
+              <div>
+                <p className="hui-section-lead">创作工坊</p>
+                <h2 className="hui-section-title">上传素材、设定语义与风格，组织你自己的候选画廊</h2>
+              </div>
+              <div className="hui-side-note">
+                每轮任务都会依照当前配置生成多张候选图，适合比较构图、黑白关系与细节取舍。
+              </div>
+            </div>
+
+            <div className="hui-workbench-grid">
+              <section className="hui-stage">
+                <div className="hui-stage-head">
+                  <div>
+                    <h3 className="hui-stage-title">上传建筑照片</h3>
+                    <p className="hui-stage-desc">
+                      支持多张 JPG、PNG。不同视角越充分，模型越容易保留建筑的轮廓起伏与院落层次。
+                    </p>
+                  </div>
+                  <span className="hui-stage-index">壹</span>
+                </div>
+                <ImageUpload images={images} onImagesChange={setImages} maxImages={10} />
+              </section>
+
+              <section className="hui-stage">
+                <div className="hui-stage-head">
+                  <div>
+                    <h3 className="hui-stage-title">配置提示词</h3>
+                    <p className="hui-stage-desc">
+                      用基础提示词描述主体，用转化提示词控制平面化语言，再决定是否启用 AI 补全。
+                    </p>
+                  </div>
+                  <span className="hui-stage-index">贰</span>
+                </div>
+                <PromptConfig
+                  basePrompt={basePrompt}
+                  onBasePromptChange={setBasePrompt}
+                  transformPrompt={transformPrompt}
+                  onTransformPromptChange={setTransformPrompt}
+                  aiCompletionEnabled={aiCompletionEnabled}
+                  onAiCompletionEnabledChange={setAiCompletionEnabled}
+                  aiCompletionPrompt={aiCompletionPrompt}
+                  onAiCompletionPromptChange={setAiCompletionPrompt}
+                />
+              </section>
+
+              <section className="hui-stage">
+                <div className="hui-stage-head">
+                  <div>
+                    <h3 className="hui-stage-title">选择风格倾向</h3>
+                    <p className="hui-stage-desc">
+                      传统风格强调纹样与对称，现代风格强调块面与留白，自定义风格则完全开放关键词。
+                    </p>
+                  </div>
+                  <span className="hui-stage-index">叁</span>
+                </div>
+                <StyleSelector
+                  styleType={styleType}
+                  onStyleTypeChange={setStyleType}
+                  customStyleKeywords={customStyleKeywords}
+                  onCustomStyleKeywordsChange={setCustomStyleKeywords}
+                />
+              </section>
+
+              <section className="hui-stage">
+                <div className="hui-stage-head">
+                  <div>
+                    <h3 className="hui-stage-title">开始生成候选图</h3>
+                    <p className="hui-stage-desc">
+                      设置输出数量后即可开始生成，候选图会按完成顺序呈现在下方画廊区域。
+                    </p>
+                  </div>
+                  <span className="hui-stage-index">肆</span>
+                </div>
+                <GenerationControl
+                  generationCount={generationCount}
+                  onGenerationCountChange={setGenerationCount}
+                  onGenerate={handleGenerate}
+                  isGenerating={isGenerating}
+                  disabled={images.length === 0}
+                />
+              </section>
+            </div>
+          </section>
+
+          {shouldShowLiveResults && (
+            <section className="hui-paper-panel hui-gallery-panel" id="live-results">
+              <div className="hui-gallery-header">
                 <div>
-                  <h3 className="text-lg font-semibold text-foreground mb-2">
-                    示例参考
-                  </h3>
-                  <p className="text-sm text-muted-foreground">
-                    徽派建筑刻纸艺术效果展示
+                  <p className="hui-section-lead">候选画廊</p>
+                  <h2 className="hui-section-title">本轮任务的候选图会依次铺开</h2>
+                  <p className="hui-card-desc">
+                    {activeGenerationId
+                      ? '画廊会随着任务进度持续更新，已完成的候选图将即时显示。'
+                      : '图片正在整理与提交，请稍候片刻。'}
                   </p>
                 </div>
-                <div className="aspect-square rounded-lg overflow-hidden border-2 border-border">
-                  <img
-                    src="https://miaoda-conversation-file.cdn.bcebos.com/user-5vr5we1cxssg/20260317/file-abt93p19qvpc.jpg"
-                    alt="徽派建筑刻纸艺术示例"
-                    className="w-full h-full object-cover"
-                  />
+
+                <div className="hui-result-actions">
+                  {activeGenerationId && (
+                    <span className="hui-meta-chip">任务编号 {activeGenerationId.slice(0, 8)}</span>
+                  )}
+                  <span className="hui-meta-chip">
+                    已完成 {progressInfo.success} / {progressInfo.total}
+                  </span>
+                  <Button
+                    className="hui-button-primary"
+                    onClick={handleBatchDownload}
+                    disabled={liveImages.length === 0 || isDownloading}
+                  >
+                    {isDownloading ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        下载中...
+                      </>
+                    ) : (
+                      <>
+                        <Download className="h-4 w-4" />
+                        批量下载
+                      </>
+                    )}
+                  </Button>
                 </div>
-                <div className="text-xs text-muted-foreground space-y-1">
-                  <p>✨ 将三维建筑转化为二维刻纸艺术</p>
-                  <p>✨ 保留建筑层次感与结构特征</p>
-                  <p>✨ 黑白对比，线条清晰</p>
+              </div>
+
+              <section className="hui-progress-panel">
+                <div>
+                  <h3 className="hui-card-title">
+                    {isLiveGenerating ? '正在生成中' : '本轮生成已完成'}
+                  </h3>
+                  <p className="hui-card-desc">
+                    {progressInfo.total > 0 && (
+                      <>
+                        成功 {progressInfo.success} 张，失败 {progressInfo.failed} 张，剩余 {progressInfo.pending} 张
+                      </>
+                    )}
+                  </p>
+                  {generationProgress?.errorMessage && (
+                    <p className="hui-hint mt-3">{generationProgress.errorMessage}</p>
+                  )}
                 </div>
-              </CardContent>
-            </Card>
-          </div>
 
-          {/* 中间：配置区域 */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* 图片上传 */}
-            <section>
-              <h2 className="text-2xl font-bold text-foreground mb-4">
-                1. 上传建筑照片
-              </h2>
-              <ImageUpload images={images} onImagesChange={setImages} maxImages={10} />
-            </section>
+                <div className="hui-progress-head">
+                  <div className="hui-hint">
+                    进度会自动刷新。每完成一张候选图，画廊里的占位卡片就会被真实结果替换。
+                  </div>
+                  <div className="hui-progress-value">{progressPercentage}%</div>
+                </div>
 
-            <Separator />
+                <div className="hui-progress-bar">
+                  <span style={{ width: `${progressPercentage}%` }} />
+                </div>
+              </section>
 
-            {/* 提示词配置 */}
-            <section>
-              <h2 className="text-2xl font-bold text-foreground mb-4">
-                2. 配置提示词
-              </h2>
-              <PromptConfig
-                basePrompt={basePrompt}
-                onBasePromptChange={setBasePrompt}
-                transformPrompt={transformPrompt}
-                onTransformPromptChange={setTransformPrompt}
-                aiCompletionEnabled={aiCompletionEnabled}
-                onAiCompletionEnabledChange={setAiCompletionEnabled}
-                aiCompletionPrompt={aiCompletionPrompt}
-                onAiCompletionPromptChange={setAiCompletionPrompt}
+              <ResultGrid
+                images={liveImages}
+                favorites={favorites}
+                onToggleFavorite={handleToggleFavorite}
+                onDownload={handleDownload}
+                isLoading={!activeGenerationId && isGenerating}
+                isGenerating={isLiveGenerating}
+                expectedCount={progressInfo.total || activeGenerationCount}
               />
             </section>
+          )}
+        </main>
 
-            <Separator />
-
-            {/* 风格选择 */}
-            <section>
-              <h2 className="text-2xl font-bold text-foreground mb-4">
-                3. 选择风格
-              </h2>
-              <StyleSelector
-                styleType={styleType}
-                onStyleTypeChange={setStyleType}
-                customStyleKeywords={customStyleKeywords}
-                onCustomStyleKeywordsChange={setCustomStyleKeywords}
-              />
-            </section>
-
-            <Separator />
-
-            {/* 生成控制 */}
-            <section>
-              <h2 className="text-2xl font-bold text-foreground mb-4">
-                4. 开始生成
-              </h2>
-              <GenerationControl
-                generationCount={generationCount}
-                onGenerationCountChange={setGenerationCount}
-                onGenerate={handleGenerate}
-                isGenerating={isGenerating}
-                disabled={images.length === 0}
-              />
-            </section>
-          </div>
-        </div>
-      </main>
-
-      {/* 页脚 */}
-      <footer className="border-t border-border bg-card mt-12">
-        <div className="container mx-auto px-4 py-6 text-center text-sm text-muted-foreground">
-          <p>© 2026 徽纸艺境 - 徽派建筑刻纸艺术生成系统</p>
-        </div>
-      </footer>
+        <footer className="hui-footer">
+          <p>
+            <strong>徽纸艺境</strong> 以徽派建筑为母题，将白墙黛瓦转译为黑白刻纸图像。
+          </p>
+          <p>徽纸艺境</p>
+        </footer>
+      </div>
     </div>
   );
 }

@@ -1,0 +1,26 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "buildCommand": "pnpm build",
+  "outputDirectory": "dist",
+  "functions": {
+    "api/**/*.ts": {
+      "maxDuration": 300,
+      "regions": ["iad1"]
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/generations/:id/status",
+      "destination": "/api/generation-status?id=:id"
+    },
+    {
+      "source": "/api/generations/:id",
+      "destination": "/api/generation?id=:id"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

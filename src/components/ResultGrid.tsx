@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
-import { Download, Heart, ZoomIn, Loader2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
+import React, { useEffect, useRef, useState } from 'react';
+import { Download, Heart, Loader2, ZoomIn } from 'lucide-react';
 import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -12,7 +11,17 @@ interface ResultGridProps {
   onToggleFavorite: (imageUrl: string) => void;
   onDownload: (imageUrl: string) => void;
   isLoading?: boolean;
+  isGenerating?: boolean;
+  expectedCount?: number;
 }
+
+const TEXT = {
+  imageLoadError: '\u56fe\u7247\u52a0\u8f7d\u5931\u8d25',
+  empty: '\u6682\u65e0\u751f\u6210\u7ed3\u679c',
+  generating: '\u6b63\u5728\u751f\u6210',
+  candidatePrefix: '\u5019\u9009\u56fe',
+  resultAltPrefix: '\u751f\u6210\u7ed3\u679c',
+};
 
 export function ResultGrid({
   images,
@@ -20,131 +29,173 @@ export function ResultGrid({
   onToggleFavorite,
   onDownload,
   isLoading = false,
+  isGenerating = false,
+  expectedCount,
 }: ResultGridProps) {
   const [loadingImages, setLoadingImages] = useState<Set<string>>(new Set());
+  const knownImagesRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (images.length === 0) {
+      knownImagesRef.current.clear();
+      setLoadingImages(new Set());
+      return;
+    }
+
+    setLoadingImages((previous) => {
+      const next = new Set<string>();
+      const currentImageSet = new Set(images);
+
+      for (const image of previous) {
+        if (currentImageSet.has(image)) {
+          next.add(image);
+        }
+      }
+
+      for (const image of images) {
+        if (!knownImagesRef.current.has(image)) {
+          knownImagesRef.current.add(image);
+          next.add(image);
+        }
+      }
+
+      for (const image of Array.from(knownImagesRef.current)) {
+        if (!currentImageSet.has(image)) {
+          knownImagesRef.current.delete(image);
+        }
+      }
+
+      return next;
+    });
+  }, [images]);
 
   const handleImageLoad = (url: string) => {
-    setLoadingImages((prev) => {
-      const next = new Set(prev);
+    setLoadingImages((previous) => {
+      const next = new Set(previous);
       next.delete(url);
       return next;
     });
   };
 
   const handleImageError = (url: string) => {
-    setLoadingImages((prev) => {
-      const next = new Set(prev);
+    setLoadingImages((previous) => {
+      const next = new Set(previous);
       next.delete(url);
       return next;
     });
-    toast.error('图片加载失败');
+    toast.error(TEXT.imageLoadError);
   };
 
-  if (isLoading) {
-    return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {Array.from({ length: 4 }).map((_, index) => (
-          <Card key={index} className="overflow-hidden">
-            <div className="aspect-square bg-muted animate-pulse flex items-center justify-center">
-              <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
-            </div>
-          </Card>
-        ))}
-      </div>
-    );
-  }
+  const targetCount = expectedCount && expectedCount > 0 ? expectedCount : 4;
+  const placeholderCount = isLoading || isGenerating
+    ? Math.max(targetCount - images.length, 0)
+    : 0;
 
-  if (images.length === 0) {
+  if (images.length === 0 && placeholderCount === 0) {
     return (
-      <div className="flex items-center justify-center p-12 bg-muted/50 rounded-lg">
-        <p className="text-muted-foreground">暂无生成结果</p>
+      <div className="hui-result-empty">
+        <p>{TEXT.empty}</p>
       </div>
     );
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+    <div className="hui-result-grid">
       {images.map((imageUrl, index) => {
         const isFavorited = favorites.has(imageUrl);
         const isImageLoading = loadingImages.has(imageUrl);
 
         return (
-          <Card key={index} className="overflow-hidden group relative">
-            {/* 图片容器 */}
-            <div className="aspect-square bg-muted relative">
+          <article key={imageUrl} className="hui-result-card group">
+            <div className="hui-result-media">
               {isImageLoading && (
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
+                <div className="hui-result-loading">
+                  <Loader2 className="h-8 w-8 animate-spin" />
                 </div>
               )}
               <img
                 src={imageUrl}
-                alt={`生成结果 ${index + 1}`}
+                alt={`${TEXT.resultAltPrefix} ${index + 1}`}
                 className={cn(
                   'w-full h-full object-cover transition-opacity',
-                  isImageLoading && 'opacity-0'
+                  isImageLoading && 'opacity-0',
                 )}
                 onLoad={() => handleImageLoad(imageUrl)}
                 onError={() => handleImageError(imageUrl)}
               />
 
-              {/* 悬浮操作栏 */}
-              <div className="absolute inset-0 bg-secondary/80 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                {/* 放大预览 */}
+              <div className="hui-result-overlay">
                 <Dialog>
                   <DialogTrigger asChild>
-                    <Button variant="secondary" size="icon" className="w-10 h-10">
-                      <ZoomIn className="w-5 h-5" />
+                    <Button variant="ghost" size="icon" className="hui-icon-button">
+                      <ZoomIn className="h-5 w-5" />
                     </Button>
                   </DialogTrigger>
-                  <DialogContent className="max-w-4xl p-0">
+                  <DialogContent className="hui-preview-dialog">
                     <img
                       src={imageUrl}
-                      alt={`生成结果 ${index + 1}`}
+                      alt={`${TEXT.resultAltPrefix} ${index + 1}`}
                       className="w-full h-auto"
                     />
                   </DialogContent>
                 </Dialog>
 
-                {/* 收藏 */}
                 <Button
-                  variant="secondary"
+                  variant="ghost"
                   size="icon"
-                  className="w-10 h-10"
+                  className="hui-icon-button"
                   onClick={() => onToggleFavorite(imageUrl)}
                 >
                   <Heart
-                    className={cn(
-                      'w-5 h-5',
-                      isFavorited && 'fill-primary text-primary'
-                    )}
+                    className={cn('h-5 w-5', isFavorited && 'fill-primary text-primary')}
                   />
                 </Button>
 
-                {/* 下载 */}
                 <Button
-                  variant="secondary"
+                  variant="ghost"
                   size="icon"
-                  className="w-10 h-10"
+                  className="hui-icon-button"
                   onClick={() => onDownload(imageUrl)}
                 >
-                  <Download className="w-5 h-5" />
+                  <Download className="h-5 w-5" />
                 </Button>
               </div>
             </div>
 
-            {/* 图片序号 */}
-            <div className="absolute top-3 left-3 bg-secondary/90 text-secondary-foreground text-sm font-medium px-3 py-1 rounded-full">
-              {index + 1}
+            <div className="hui-result-index">
+              {String(index + 1).padStart(2, '0')}
             </div>
 
-            {/* 收藏标记 */}
             {isFavorited && (
-              <div className="absolute top-3 right-3 bg-primary/90 text-primary-foreground p-2 rounded-full">
-                <Heart className="w-4 h-4 fill-current" />
+              <div className="hui-result-favorite">
+                <Heart className="h-4 w-4 fill-current" />
               </div>
             )}
-          </Card>
+          </article>
+        );
+      })}
+
+      {Array.from({ length: placeholderCount }).map((_, index) => {
+        const slotIndex = images.length + index + 1;
+
+        return (
+          <article key={`placeholder-${slotIndex}`} className="hui-result-card is-placeholder">
+            <div className="hui-result-media">
+              <div className="hui-result-loading">
+                <div className="hui-result-loading-stack">
+                  <Loader2 className="h-8 w-8 animate-spin" />
+                  <div className="hui-result-loading-copy">
+                    <strong>{TEXT.generating}</strong>
+                    <span>{`${TEXT.candidatePrefix} ${slotIndex}`}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="hui-result-index">
+              {String(slotIndex).padStart(2, '0')}
+            </div>
+          </article>
         );
       })}
     </div>
