@@ -1,6 +1,6 @@
 export interface CandidatePlan {
   prompt: string;
-  uploadedImages: string[];
+  imageIndexes?: number[];
   variantLabel?: string;
 }
 

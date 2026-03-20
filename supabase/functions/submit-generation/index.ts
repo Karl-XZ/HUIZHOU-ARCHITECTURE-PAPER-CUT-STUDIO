@@ -19,7 +19,7 @@ interface GenerationRequest {
   generationCount: number;
   candidatePlans?: Array<{
     prompt: string;
-    uploadedImages: string[];
+    imageIndexes?: number[];
     variantLabel?: string;
   }>;
 }
@@ -30,6 +30,18 @@ interface VolcGenerationResponse {
   data?: {
     binary_data_base64?: string[];
   };
+}
+
+function resolveCandidateUploadedImages(uploadedImages: string[], imageIndexes?: number[]) {
+  if (!Array.isArray(imageIndexes) || imageIndexes.length === 0) {
+    return uploadedImages;
+  }
+
+  const resolvedImages = imageIndexes
+    .map((index) => uploadedImages[index])
+    .filter((image): image is string => typeof image === 'string' && image.length > 0);
+
+  return resolvedImages.length > 0 ? resolvedImages : uploadedImages;
 }
 
 function decodeBase64Image(base64Image: string): Uint8Array {
@@ -165,7 +177,7 @@ Deno.serve(async (req) => {
     const generationTasks = Array.from({ length: plannedCount }, async (_, index) => {
       const candidatePlan = body.candidatePlans?.[index];
       const generatedImage = await generateSingleImage(
-        candidatePlan?.uploadedImages?.length ? candidatePlan.uploadedImages : body.uploadedImages,
+        resolveCandidateUploadedImages(body.uploadedImages, candidatePlan?.imageIndexes),
         candidatePlan?.prompt?.trim() || finalPrompt,
         accessKeyId,
         secretAccessKey,

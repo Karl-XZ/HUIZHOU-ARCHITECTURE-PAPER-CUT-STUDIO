@@ -26,21 +26,29 @@ function generationTag(id: string) {
   return `generation:${id}`;
 }
 
+function resolveCandidateUploadedImages(uploadedImages: string[], imageIndexes?: number[]) {
+  if (!Array.isArray(imageIndexes) || imageIndexes.length === 0) {
+    return uploadedImages;
+  }
+
+  const resolvedImages = imageIndexes
+    .map((index) => uploadedImages[index])
+    .filter((image): image is string => typeof image === 'string' && image.length > 0);
+
+  return resolvedImages.length > 0 ? resolvedImages : uploadedImages;
+}
+
 function getPlannedCandidates(body: GenerateRequest): CandidatePlan[] {
   if (Array.isArray(body.candidatePlans) && body.candidatePlans.length > 0) {
     return body.candidatePlans.map((plan) => ({
       prompt: plan.prompt?.trim() || body.finalPrompt,
-      uploadedImages:
-        Array.isArray(plan.uploadedImages) && plan.uploadedImages.length > 0
-          ? plan.uploadedImages
-          : body.uploadedImages,
+      imageIndexes: plan.imageIndexes,
       variantLabel: plan.variantLabel,
     }));
   }
 
   return Array.from({ length: body.generationCount }, () => ({
     prompt: body.finalPrompt,
-    uploadedImages: body.uploadedImages,
   }));
 }
 
@@ -123,6 +131,7 @@ async function generateSingleCandidate(
   generationId: string,
   candidate: CandidatePlan,
   index: number,
+  uploadedImages: string[],
   config: ReturnType<typeof getVolcengineConfig>,
 ) {
   await setCandidateState(generationId, index, {
@@ -134,7 +143,7 @@ async function generateSingleCandidate(
 
   try {
     const resultImage = await callVolcengineImage(
-      candidate.uploadedImages,
+      resolveCandidateUploadedImages(uploadedImages, candidate.imageIndexes),
       candidate.prompt,
       config.reqKey,
       config.accessKeyId,
@@ -167,7 +176,7 @@ export async function runGeneration(generationId: string, body: GenerateRequest)
 
   await Promise.allSettled(
     plannedCandidates.map((candidate, index) =>
-      generateSingleCandidate(generationId, candidate, index, config),
+      generateSingleCandidate(generationId, candidate, index, body.uploadedImages, config),
     ),
   );
 }

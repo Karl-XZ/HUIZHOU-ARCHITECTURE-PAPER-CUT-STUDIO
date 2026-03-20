@@ -18,7 +18,7 @@ interface GenerateRequest {
   generationCount: number;
   candidatePlans?: Array<{
     prompt: string;
-    uploadedImages: string[];
+    imageIndexes?: number[];
     variantLabel?: string;
   }>;
 }
@@ -107,6 +107,18 @@ function getGenerationProgress(generation: StoredGeneration) {
   };
 }
 
+function resolveCandidateUploadedImages(uploadedImages: string[], imageIndexes?: number[]) {
+  if (!Array.isArray(imageIndexes) || imageIndexes.length === 0) {
+    return uploadedImages;
+  }
+
+  const resolvedImages = imageIndexes
+    .map((index) => uploadedImages[index])
+    .filter((image): image is string => typeof image === 'string' && image.length > 0);
+
+  return resolvedImages.length > 0 ? resolvedImages : uploadedImages;
+}
+
 async function callVolcengine(
   accessKeyId: string,
   secretAccessKey: string,
@@ -193,7 +205,7 @@ async function generateImagesInBackground(
       const base64Image = await callVolcengine(accessKeyId, secretAccessKey, {
         req_key: reqKey,
         binary_data_base64:
-          candidatePlan?.uploadedImages?.length ? candidatePlan.uploadedImages : body.uploadedImages,
+          resolveCandidateUploadedImages(body.uploadedImages, candidatePlan?.imageIndexes),
         prompt: candidatePlan?.prompt?.trim() || body.finalPrompt,
         return_url: false,
         logo_info: {

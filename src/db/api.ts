@@ -22,18 +22,37 @@ function setStoredFavorites(favorites: Favorite[]) {
 }
 
 async function readJson<T>(response: Response): Promise<T> {
-  const payload = await response.json();
+  const rawText = await response.text();
+  let payload: unknown = null;
+  let parsedPayload: { error?: string; message?: string } | null = null;
+
+  if (rawText) {
+    try {
+      payload = JSON.parse(rawText);
+      parsedPayload =
+        payload && typeof payload === 'object'
+          ? (payload as { error?: string; message?: string })
+          : null;
+    } catch {
+      payload = null;
+    }
+  }
+
   if (!response.ok) {
+    if (response.status === 413) {
+      throw new Error('上传图片过大，请减少图片数量，或使用更小的原图后重试。');
+    }
+
     const message =
-      typeof payload?.error === 'string'
-        ? payload.error
-        : typeof payload?.message === 'string'
-          ? payload.message
-          : 'Request failed';
+      typeof parsedPayload?.error === 'string'
+        ? parsedPayload.error
+        : typeof parsedPayload?.message === 'string'
+          ? parsedPayload.message
+          : rawText || `Request failed (${response.status})`;
     throw new Error(message);
   }
 
-  return payload as T;
+  return (payload as T | null) ?? ({} as T);
 }
 
 export async function submitGeneration(request: GenerationRequest) {

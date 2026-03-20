@@ -41,6 +41,11 @@ const CANDIDATE_VARIANTS: Array<{ label: string; prompt: string }> = [
   },
 ];
 
+const MAX_IMAGE_DIMENSION = 1400;
+const MAX_TOTAL_BINARY_BYTES = 2_400_000;
+const MIN_BINARY_BYTES_PER_IMAGE = 140_000;
+const MAX_BINARY_BYTES_PER_IMAGE = 320_000;
+
 function normalizePromptParts(parts: string[]) {
   return parts
     .map((part) => part.trim())
@@ -48,42 +53,132 @@ function normalizePromptParts(parts: string[]) {
     .join(', ');
 }
 
-function pickCandidateReferenceImages(uploadedImages: string[], index: number) {
-  if (uploadedImages.length <= 1) {
-    return uploadedImages;
+function pickCandidateReferenceImageIndexes(imageCount: number, index: number) {
+  if (imageCount <= 1) {
+    return [0];
   }
 
-  if (uploadedImages.length === 2) {
-    return index % 2 === 0
-      ? [...uploadedImages]
-      : [uploadedImages[1], uploadedImages[0]];
+  if (imageCount === 2) {
+    return index % 2 === 0 ? [0, 1] : [1, 0];
   }
 
-  const selected: string[] = [];
-  const limit = Math.min(uploadedImages.length, 3);
-  const start = index % uploadedImages.length;
+  const selected: number[] = [];
+  const limit = Math.min(imageCount, 3);
+  const start = index % imageCount;
 
   for (let offset = 0; offset < limit; offset += 1) {
-    selected.push(uploadedImages[(start + offset) % uploadedImages.length]);
+    selected.push((start + offset) % imageCount);
   }
 
   return selected;
 }
 
-export async function fileToBase64(file: File): Promise<string> {
+function readFileAsDataUrl(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => {
-      const result = reader.result as string;
-      resolve(result.split(',')[1]);
-    };
-    reader.onerror = reject;
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
 }
 
+async function dataUrlToBase64(file: Blob) {
+  const dataUrl = await readFileAsDataUrl(file);
+  return dataUrl.split(',')[1];
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, quality: number) {
+  return new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (blob) {
+          resolve(blob);
+          return;
+        }
+
+        reject(new Error('Failed to encode image'));
+      },
+      'image/jpeg',
+      quality,
+    );
+  });
+}
+
+function loadImageElement(file: File) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const image = new Image();
+
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+
+    image.onerror = (event) => {
+      URL.revokeObjectURL(objectUrl);
+      reject(event);
+    };
+
+    image.src = objectUrl;
+  });
+}
+
+async function compressImageToBase64(file: File, targetBinaryBytes: number) {
+  const image = await loadImageElement(file);
+  let scale = Math.min(1, MAX_IMAGE_DIMENSION / Math.max(image.width, image.height));
+  let quality = 0.86;
+  let bestBlob: Blob | null = null;
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.width * scale));
+    canvas.height = Math.max(1, Math.round(image.height * scale));
+
+    const context = canvas.getContext('2d');
+    if (!context) {
+      throw new Error('Canvas is not supported in this browser');
+    }
+
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    const blob = await canvasToBlob(canvas, quality);
+    bestBlob = blob;
+
+    if (blob.size <= targetBinaryBytes) {
+      return dataUrlToBase64(blob);
+    }
+
+    if (quality > 0.58) {
+      quality -= 0.08;
+    } else {
+      scale *= 0.85;
+    }
+  }
+
+  return dataUrlToBase64(bestBlob ?? file);
+}
+
+export async function fileToBase64(file: File, targetBinaryBytes = MAX_BINARY_BYTES_PER_IMAGE): Promise<string> {
+  const shouldCompress =
+    file.size > targetBinaryBytes ||
+    file.type === 'image/png' ||
+    file.type === 'image/jpeg' ||
+    file.type === 'image/jpg';
+
+  if (!shouldCompress) {
+    return dataUrlToBase64(file);
+  }
+
+  return compressImageToBase64(file, targetBinaryBytes);
+}
+
 export async function filesToBase64Array(files: File[]): Promise<string[]> {
-  return Promise.all(files.map((file) => fileToBase64(file)));
+  const safeImageCount = Math.max(files.length, 1);
+  const targetBinaryBytes = Math.min(
+    MAX_BINARY_BYTES_PER_IMAGE,
+    Math.max(MIN_BINARY_BYTES_PER_IMAGE, Math.floor(MAX_TOTAL_BINARY_BYTES / safeImageCount)),
+  );
+
+  return Promise.all(files.map((file) => fileToBase64(file, targetBinaryBytes)));
 }
 
 export async function downloadImage(url: string, filename?: string) {
@@ -151,7 +246,7 @@ export function buildCandidatePlans(
         '与其他候选图拉开差异，保持同一建筑主体，但在构图重心、黑白面积和细节强调上明显不同。',
         '金坛刻纸风格继续保持高优先级，避免重新回到写实照片感。',
       ]),
-      uploadedImages: pickCandidateReferenceImages(uploadedImages, index),
+      imageIndexes: pickCandidateReferenceImageIndexes(uploadedImages.length, index),
       variantLabel: variant.label,
     };
   });
