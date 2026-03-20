@@ -1,4 +1,4 @@
-import { getGenerationResponse } from './_lib/generation-service.ts';
+import { getGenerationResponse } from './_lib/generation-service';
 
 function json(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
