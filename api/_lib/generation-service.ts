@@ -1,14 +1,14 @@
 import { randomUUID } from 'node:crypto';
 
-import { getStoreItem, setStoreItem } from './runtime-store';
-import { callVolcengineImage, getVolcengineConfig } from './volcengine';
+import { getStoreItem, setStoreItem } from './runtime-store.js';
+import { callVolcengineImage, getVolcengineConfig } from './volcengine.js';
 import type {
   CandidatePlan,
   GenerateRequest,
   GenerationProgressPayload,
   StoredCandidateState,
   StoredGeneration,
-} from './types';
+} from './types.js';
 
 function generationKey(id: string) {
   return `generation:${id}:meta`;

@@ -1,7 +1,7 @@
-import { enqueueBackgroundTask } from './_lib/background';
-import { createGeneration, runGeneration, validateGenerateRequest } from './_lib/generation-service';
-import { getVolcengineConfig } from './_lib/volcengine';
-import type { GenerateRequest } from './_lib/types';
+import { enqueueBackgroundTask } from './_lib/background.js';
+import { createGeneration, runGeneration, validateGenerateRequest } from './_lib/generation-service.js';
+import { getVolcengineConfig } from './_lib/volcengine.js';
+import type { GenerateRequest } from './_lib/types.js';
 
 function json(payload: unknown, status = 200) {
   return new Response(JSON.stringify(payload), {
