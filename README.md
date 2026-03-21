@@ -1,12 +1,12 @@
 # 徽纸艺境
 
-徽派建筑照片转黑白刻纸候选图的 Vite + React 应用。
+徽派建筑照片转黑白剪纸候选图的 `Vite + React` 应用。
 
-当前仓库已经整理为可直接部署到 Vercel 的形态：
-- 前端是 Vite SPA
-- `/api/*` 使用 Vercel Functions
-- 生成任务状态和结果图片使用 Vercel Runtime Cache
-- 不再依赖 Supabase 才能跑通主流程
+当前仓库已经整理为可直接部署到 `Cloudflare Pages` 的形态：
+- 前端是 `Vite SPA`
+- 生产接口位于 `functions/api/*`
+- 生成任务状态和结果图片使用 `Cloudflare KV`
+- 首页提交后会停留在首页，并逐张显示候选图
 
 ## 本地开发
 
@@ -20,7 +20,7 @@
 corepack pnpm install
 ```
 
-配置环境变量：
+复制环境变量：
 
 ```bash
 cp .env.example .env.local
@@ -31,46 +31,52 @@ cp .env.example .env.local
 - `VOLCENGINE_SECRET_ACCESS_KEY`
 - `VOLCENGINE_REQ_KEY`
 
-启动：
+启动开发服务：
 
 ```bash
 corepack pnpm dev -- --host 127.0.0.1 --port 5173
 ```
 
-## 部署到 Vercel
+本地开发仍然使用 `vite.config.ts` 里的 `/api/*` 中间件。Cloudflare 生产环境使用 `functions/api/*`。
 
-1. 把仓库推到 GitHub
-2. 在 Vercel 导入这个仓库
-3. 在 Vercel 项目环境变量里添加：
-   - `VOLCENGINE_ACCESS_KEY_ID`
-   - `VOLCENGINE_SECRET_ACCESS_KEY`
-   - `VOLCENGINE_REQ_KEY`
-4. 直接触发部署
+## 部署到 Cloudflare Pages
 
-部署后即可访问，不需要再单独部署 Supabase 或其他后端服务。
+1. 将仓库推送到 GitHub。
+2. 在 Cloudflare Dashboard 中创建 Pages 项目并连接该仓库。
+3. 构建配置填写：
+   - Build command: `corepack pnpm build`
+   - Build output directory: `dist`
+4. 在 `Settings -> Variables and Secrets` 中添加：
+   - Secret: `VOLCENGINE_ACCESS_KEY_ID`
+   - Secret: `VOLCENGINE_SECRET_ACCESS_KEY`
+   - Variable 或 Secret: `VOLCENGINE_REQ_KEY`
+5. 在 `Settings -> Bindings` 中添加一个 KV 绑定，名称必须是：
+   - `HUI_PAPER_ART_KV`
+6. 触发部署。
 
-## 运行方式
+也可以用 Wrangler 直接部署。仓库已包含 [wrangler.jsonc](./wrangler.jsonc)，并把 `pages_build_output_dir` 设为 `dist`。
 
-- 首页上传建筑图片
-- 点击生成后，页面会停留在首页
-- 候选图会在首页逐张出现
-- 前端轮询：
-  - `POST /api/generate`
-  - `GET /api/generations/:id/status`
-  - `GET /api/generations/:id`
+## 路由说明
+
+应用已使用 `HashRouter`，部署后页面地址会是：
+- 首页：`https://your-site.pages.dev/#/`
+- 结果页：`https://your-site.pages.dev/#/result/:generationId`
 
 ## 关键文件
 
-- `src/pages/HomePage.tsx`：首页交互与实时候选图展示
+- `src/pages/HomePage.tsx`：首页交互与实时候选图显示
 - `src/db/api.ts`：前端 API 请求
-- `api/generate.ts`：Vercel 生成入口
-- `api/generation-status.ts`：Vercel 状态查询
-- `api/generation.ts`：Vercel 任务详情查询
-- `vercel.json`：Vercel 重写规则与函数配置
+- `functions/api/generate.ts`：Cloudflare 生成入口
+- `functions/api/generations/[id].ts`：任务详情
+- `functions/api/generations/[id]/status.ts`：任务状态
+- `functions/_lib/storage.ts`：KV 存储适配
+- `functions/_lib/volcengine.ts`：火山引擎签名与请求
+- `wrangler.jsonc`：Cloudflare Pages 配置
 
 ## 验证
 
 ```bash
 corepack pnpm exec tsc -p tsconfig.check.json --noEmit
+corepack pnpm exec tsc -p tsconfig.cloudflare.json --noEmit
 corepack pnpm build
 ```

@@ -1,6 +1,7 @@
+import type { ReactNode } from 'react';
+
 import HomePage from './pages/HomePage';
 import ResultPage from './pages/ResultPage';
-import type { ReactNode } from 'react';
 
 interface RouteConfig {
   name: string;

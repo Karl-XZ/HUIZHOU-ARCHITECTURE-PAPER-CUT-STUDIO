@@ -1,0 +1,36 @@
+import { createGeneration, runGeneration, validateGenerateRequest } from '../_lib/generation-service';
+import { json } from '../_lib/response';
+import { enqueueBackgroundTask, type EdgeOneFunctionContext } from '../_lib/runtime';
+import { getVolcengineConfig } from '../_lib/volcengine';
+import type { GenerateRequest } from '../_lib/types';
+
+export async function onRequestPost(context: EdgeOneFunctionContext) {
+  try {
+    getVolcengineConfig(context);
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : 'Server misconfigured' }, 500);
+  }
+
+  try {
+    const body = (await context.request.json()) as GenerateRequest;
+    const validationError = validateGenerateRequest(body);
+
+    if (validationError) {
+      return json({ error: validationError }, 400);
+    }
+
+    const { generationId } = await createGeneration(context, body);
+    enqueueBackgroundTask(context, runGeneration(context, generationId, body));
+
+    return json({
+      success: true,
+      generationId,
+      taskIds: [],
+    });
+  } catch (error) {
+    return json(
+      { error: error instanceof Error ? error.message : 'Generation failed' },
+      500,
+    );
+  }
+}
