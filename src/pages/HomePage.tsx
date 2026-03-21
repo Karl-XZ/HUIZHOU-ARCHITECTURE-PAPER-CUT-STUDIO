@@ -109,6 +109,7 @@ export default function HomePage() {
       } catch (error) {
         console.error('Failed to load favorites:', error);
       }
+
     };
 
     void loadFavorites();
@@ -120,22 +121,21 @@ export default function HomePage() {
     }
 
     let cancelled = false;
-    let intervalId: ReturnType<typeof setInterval> | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     const pollStatus = async () => {
+      let nextStatus: GenerationProgress | null = null;
+
       try {
         const status = await checkGenerationStatus(activeGenerationId);
         if (cancelled) {
           return;
         }
 
+        nextStatus = status;
         setGenerationProgress(status);
 
         if (status.status === 'completed' || status.status === 'failed') {
-          if (intervalId) {
-            clearInterval(intervalId);
-          }
-
           setIsGenerating(false);
 
           const notificationKey = `${activeGenerationId}:${status.status}`;
@@ -158,21 +158,22 @@ export default function HomePage() {
         setIsGenerating(false);
         toast.error('查询生成进度失败');
 
-        if (intervalId) {
-          clearInterval(intervalId);
-        }
+        return;
+      }
+
+      if (!cancelled && nextStatus?.status === 'processing') {
+        timeoutId = setTimeout(() => {
+          void pollStatus();
+        }, 1500);
       }
     };
 
     void pollStatus();
-    intervalId = setInterval(() => {
-      void pollStatus();
-    }, 4000);
 
     return () => {
       cancelled = true;
-      if (intervalId) {
-        clearInterval(intervalId);
+      if (timeoutId) {
+        clearTimeout(timeoutId);
       }
     };
   }, [activeGenerationId]);

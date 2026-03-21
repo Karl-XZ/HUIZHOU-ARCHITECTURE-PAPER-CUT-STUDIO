@@ -2,5 +2,14 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "huizhou-architecture-paper-cut-studio",
   "pages_build_output_dir": "dist",
-  "compatibility_date": "2026-03-21"
+  "compatibility_date": "2026-03-21",
+  "vars": {
+    "VOLCENGINE_MODEL_ID": "doubao-seedream-4-5-251128"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "HUI_PAPER_ART_KV",
+      "id": "ee89b9bc77cd474d943225d9f21b3629"
+    }
+  ]
 }

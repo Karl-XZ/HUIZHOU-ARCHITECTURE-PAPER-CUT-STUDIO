@@ -1,6 +1,6 @@
-import { createGeneration, runGeneration, validateGenerateRequest } from '../_lib/generation-service';
+import { createGeneration, validateGenerateRequest } from '../_lib/generation-service';
 import { json } from '../_lib/response';
-import { enqueueBackgroundTask, type CloudflarePagesContext } from '../_lib/runtime';
+import type { CloudflarePagesContext } from '../_lib/runtime';
 import { getVolcengineConfig } from '../_lib/volcengine';
 import type { GenerateRequest } from '../_lib/types';
 
@@ -20,7 +20,6 @@ export async function onRequestPost(context: CloudflarePagesContext) {
     }
 
     const { generationId } = await createGeneration(context, body);
-    enqueueBackgroundTask(context, runGeneration(context, generationId, body));
 
     return json({
       success: true,

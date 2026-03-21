@@ -21,6 +21,12 @@ function imageKey(id: string, index: number) {
   return `generation_${id}_image_${index}`;
 }
 
+function requestKey(id: string) {
+  return `generation_${id}_request`;
+}
+
+const STALE_PROCESSING_MS = 90_000;
+
 function resolveCandidateUploadedImages(uploadedImages: string[], imageIndexes?: number[]) {
   if (!Array.isArray(imageIndexes) || imageIndexes.length === 0) {
     return uploadedImages;
@@ -59,6 +65,19 @@ async function listCandidateStates(
   );
 
   return states.filter((state): state is StoredCandidateState => state !== null);
+}
+
+function isCandidateProcessingStale(candidateState: StoredCandidateState) {
+  if (candidateState.status !== 'processing') {
+    return false;
+  }
+
+  const updatedAt = Date.parse(candidateState.updated_at);
+  if (Number.isNaN(updatedAt)) {
+    return true;
+  }
+
+  return Date.now() - updatedAt >= STALE_PROCESSING_MS;
 }
 
 async function setCandidateState(
@@ -112,6 +131,7 @@ export async function createGeneration(
   };
 
   await setStoreJson(context, generationKey(generationId), generation);
+  await setStoreJson(context, requestKey(generationId), body);
   await Promise.all(
     plannedCandidates.map((candidate, index) =>
       setCandidateState(context, generationId, index, {
@@ -190,21 +210,106 @@ async function generateSingleCandidate(
   }
 }
 
-export async function runGeneration(
+async function getStoredGenerateRequest(
   context: CloudflarePagesContext,
   generationId: string,
-  body: GenerateRequest,
 ) {
-  const config = getVolcengineConfig(context);
-  const plannedCandidates = getPlannedCandidates(body);
+  return getStoreJson<GenerateRequest>(context, requestKey(generationId));
+}
 
-  await Promise.allSettled(
-    plannedCandidates.map((candidate, index) =>
-      generateSingleCandidate(context, generationId, candidate, index, body.uploadedImages, config),
-    ),
+function findCandidateToAdvance(candidateStates: StoredCandidateState[]) {
+  const activeCandidate = candidateStates.find(
+    (candidateState) =>
+      candidateState.status === 'processing' && !isCandidateProcessingStale(candidateState),
+  );
+  if (activeCandidate) {
+    return null;
+  }
+
+  const staleCandidate = candidateStates.find(isCandidateProcessingStale);
+  if (staleCandidate) {
+    return staleCandidate.index;
+  }
+
+  const pendingCandidate = candidateStates.find(
+    (candidateState) => candidateState.status === 'pending',
+  );
+  return pendingCandidate?.index ?? null;
+}
+
+export async function advanceGeneration(
+  context: CloudflarePagesContext,
+  generationId: string,
+) {
+  const generation = await getStoreJson<StoredGeneration>(context, generationKey(generationId));
+  if (!generation) {
+    return null;
+  }
+
+  if (generation.status === 'completed' || generation.status === 'failed') {
+    return generation;
+  }
+
+  const request = await getStoredGenerateRequest(context, generationId);
+  if (!request) {
+    await setStoreJson(context, generationKey(generationId), {
+      ...generation,
+      status: 'failed',
+      error_message: 'Generation request payload is missing',
+    });
+    return generation;
+  }
+
+  const candidateStates = await listCandidateStates(context, generationId, generation.generation_count);
+  const candidateIndex = findCandidateToAdvance(candidateStates);
+
+  if (candidateIndex === null) {
+    await updateGenerationMeta(context, generationId);
+    return generation;
+  }
+
+  const plannedCandidates = getPlannedCandidates(request);
+  const candidate = plannedCandidates[candidateIndex];
+  if (!candidate) {
+    await setCandidateState(context, generationId, candidateIndex, {
+      index: candidateIndex,
+      status: 'failed',
+      error: 'Candidate plan is missing',
+      updated_at: new Date().toISOString(),
+    });
+    await updateGenerationMeta(context, generationId);
+    return generation;
+  }
+
+  const config = getVolcengineConfig(context);
+  await generateSingleCandidate(
+    context,
+    generationId,
+    candidate,
+    candidateIndex,
+    request.uploadedImages,
+    config,
   );
 
   await updateGenerationMeta(context, generationId);
+  return getStoreJson<StoredGeneration>(context, generationKey(generationId));
+}
+
+export async function runGeneration(
+  context: CloudflarePagesContext,
+  generationId: string,
+) {
+  while (true) {
+    const generation = await advanceGeneration(context, generationId);
+    if (!generation || generation.status === 'completed' || generation.status === 'failed') {
+      return;
+    }
+
+    const snapshot = await getGenerationSnapshot(context, generationId);
+    if (!snapshot || snapshot.progressPayload.status !== 'processing') {
+      return;
+    }
+  }
 }
 
 export async function getGenerationSnapshot(
