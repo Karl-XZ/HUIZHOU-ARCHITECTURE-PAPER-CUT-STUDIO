@@ -42,7 +42,7 @@ interface StoredGeneration {
   error_message?: string;
 }
 
-interface VolcengineResponse {
+interface VisualVolcengineResponse {
   code: number;
   message?: string;
   data?: {
@@ -50,7 +50,36 @@ interface VolcengineResponse {
   };
 }
 
+interface ArkImagesResponse {
+  data?: Array<{
+    url?: string;
+    b64_json?: string;
+  }>;
+  error?: {
+    message?: string;
+    type?: string;
+    code?: string;
+  };
+}
+
+type VolcengineConfig =
+  | {
+      provider: 'ark';
+      apiKey: string;
+      modelId: string;
+      baseUrl: string;
+      watermark: boolean;
+    }
+  | {
+      provider: 'visual';
+      accessKeyId: string;
+      secretAccessKey: string;
+      reqKey: string;
+    };
+
 const generationStore = new Map<string, StoredGeneration>();
+const DEFAULT_ARK_MODEL_ID = 'doubao-seededit-3-0-i2i-250628';
+const DEFAULT_ARK_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 
 function readRequestBody(req: NodeJS.ReadableStream): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -94,6 +123,22 @@ function toXDate(date: Date) {
   return date.toISOString().replace(/[:-]|\.\d{3}/g, '');
 }
 
+function normalizeArkBaseUrl(baseUrl: string) {
+  return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
+}
+
+function normalizeInputImage(image: string) {
+  return image.startsWith('data:') ? image : `data:image/jpeg;base64,${image}`;
+}
+
+function getArkErrorMessage(payload: ArkImagesResponse, status: number) {
+  return (
+    payload.error?.message ||
+    payload.error?.code ||
+    `Volcengine Ark request failed with status ${status}`
+  );
+}
+
 function getGenerationProgress(generation: StoredGeneration) {
   const success = generation.result_images.length;
   const failed = generation.failed_count;
@@ -119,9 +164,8 @@ function resolveCandidateUploadedImages(uploadedImages: string[], imageIndexes?:
   return resolvedImages.length > 0 ? resolvedImages : uploadedImages;
 }
 
-async function callVolcengine(
-  accessKeyId: string,
-  secretAccessKey: string,
+async function callVisualVolcengine(
+  config: Extract<VolcengineConfig, { provider: 'visual' }>,
   body: Record<string, unknown>,
 ) {
   const host = 'visual.volcengineapi.com';
@@ -158,13 +202,13 @@ async function callVolcengine(
   const credentialScope = `${shortXDate}/${region}/${service}/request`;
   const stringToSign = ['HMAC-SHA256', xDate, credentialScope, hashedCanonicalRequest].join('\n');
 
-  const kDate = hmacRaw(secretAccessKey, shortXDate);
+  const kDate = hmacRaw(config.secretAccessKey, shortXDate);
   const kRegion = hmacRaw(kDate, region);
   const kService = hmacRaw(kRegion, service);
   const kSigning = hmacRaw(kService, 'request');
   const signature = createHmac('sha256', kSigning).update(stringToSign).digest('hex');
   const authorization = [
-    `HMAC-SHA256 Credential=${accessKeyId}/${credentialScope}`,
+    `HMAC-SHA256 Credential=${config.accessKeyId}/${credentialScope}`,
     `SignedHeaders=${signedHeaders}`,
     `Signature=${signature}`,
   ].join(', ');
@@ -180,7 +224,7 @@ async function callVolcengine(
     body: requestBody,
   });
 
-  const payload = (await response.json()) as VolcengineResponse;
+  const payload = (await response.json()) as VisualVolcengineResponse;
   if (!response.ok || payload.code !== 10000 || !payload.data?.binary_data_base64?.[0]) {
     throw new Error(payload.message || `Volcengine request failed with status ${response.status}`);
   }
@@ -188,12 +232,87 @@ async function callVolcengine(
   return payload.data.binary_data_base64[0];
 }
 
+async function callArkVolcengine(
+  config: Extract<VolcengineConfig, { provider: 'ark' }>,
+  prompt: string,
+  uploadedImages: string[],
+) {
+  const primaryImage = uploadedImages.find((image) => typeof image === 'string' && image.length > 0);
+  if (!primaryImage) {
+    throw new Error('At least one uploaded image is required');
+  }
+
+  const response = await fetch(`${normalizeArkBaseUrl(config.baseUrl)}/images/generations`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${config.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: config.modelId,
+      prompt,
+      image: normalizeInputImage(primaryImage),
+      size: 'adaptive',
+      watermark: config.watermark,
+      response_format: 'url',
+    }),
+  });
+
+  const payload = (await response.json()) as ArkImagesResponse;
+  const firstImage = payload.data?.[0];
+
+  if (!response.ok || (!firstImage?.url && !firstImage?.b64_json)) {
+    throw new Error(getArkErrorMessage(payload, response.status));
+  }
+
+  if (firstImage.b64_json) {
+    return `data:image/png;base64,${firstImage.b64_json}`;
+  }
+
+  const imageResponse = await fetch(firstImage.url!);
+  if (!imageResponse.ok) {
+    throw new Error(`Generated image download failed with status ${imageResponse.status}`);
+  }
+
+  const contentType = imageResponse.headers.get('content-type') || 'image/png';
+  const buffer = Buffer.from(await imageResponse.arrayBuffer());
+  return `data:${contentType};base64,${buffer.toString('base64')}`;
+}
+
+function getVolcengineConfig(env: Record<string, string>): VolcengineConfig {
+  const apiKey = env.VOLCENGINE_API_KEY || env.ARK_API_KEY;
+  if (apiKey) {
+    return {
+      provider: 'ark',
+      apiKey,
+      modelId: env.VOLCENGINE_MODEL_ID || env.ARK_MODEL_ID || DEFAULT_ARK_MODEL_ID,
+      baseUrl: env.VOLCENGINE_ARK_BASE_URL || env.ARK_BASE_URL || DEFAULT_ARK_BASE_URL,
+      watermark: true,
+    };
+  }
+
+  const accessKeyId = env.VOLCENGINE_ACCESS_KEY_ID;
+  const secretAccessKey = env.VOLCENGINE_SECRET_ACCESS_KEY;
+  const reqKey = env.VOLCENGINE_REQ_KEY || 'byteedit_v2.0';
+
+  if (!accessKeyId || !secretAccessKey) {
+    throw new Error(
+      'VOLCENGINE_API_KEY/ARK_API_KEY or VOLCENGINE_ACCESS_KEY_ID/VOLCENGINE_SECRET_ACCESS_KEY is missing',
+    );
+  }
+
+  return {
+    provider: 'visual',
+    accessKeyId,
+    secretAccessKey,
+    reqKey,
+  };
+}
+
 async function generateImagesInBackground(
   generation: StoredGeneration,
   body: GenerateRequest,
-  accessKeyId: string,
-  secretAccessKey: string,
-  reqKey: string,
+  config: VolcengineConfig,
 ) {
   const failedMessages: string[] = [];
   const plannedCount = body.candidatePlans?.length || body.generationCount;
@@ -202,19 +321,23 @@ async function generateImagesInBackground(
     const candidatePlan = body.candidatePlans?.[index];
 
     try {
-      const base64Image = await callVolcengine(accessKeyId, secretAccessKey, {
-        req_key: reqKey,
-        binary_data_base64:
-          resolveCandidateUploadedImages(body.uploadedImages, candidatePlan?.imageIndexes),
-        prompt: candidatePlan?.prompt?.trim() || body.finalPrompt,
-        return_url: false,
-        logo_info: {
-          add_logo: true,
-          logo_text_content: '\u5fbd\u7eb8\u827a\u5883',
-        },
-      });
+      const selectedImages = resolveCandidateUploadedImages(body.uploadedImages, candidatePlan?.imageIndexes);
+      const prompt = candidatePlan?.prompt?.trim() || body.finalPrompt;
+      const resultImage =
+        config.provider === 'ark'
+          ? await callArkVolcengine(config, prompt, selectedImages)
+          : `data:image/jpeg;base64,${await callVisualVolcengine(config, {
+              req_key: config.reqKey,
+              binary_data_base64: selectedImages,
+              prompt,
+              return_url: false,
+              logo_info: {
+                add_logo: true,
+                logo_text_content: '\u5fbd\u7eb8\u827a\u5883',
+              },
+            })}`;
 
-      generation.result_images.push(`data:image/jpeg;base64,${base64Image}`);
+      generation.result_images.push(resultImage);
     } catch (error) {
       generation.failed_count += 1;
       failedMessages.push(error instanceof Error ? error.message : String(error));
@@ -230,9 +353,13 @@ async function generateImagesInBackground(
 
 function localGenerateApiPlugin(mode: string): Plugin {
   const env = loadEnv(mode, process.cwd(), '');
-  const accessKeyId = env.VOLCENGINE_ACCESS_KEY_ID;
-  const secretAccessKey = env.VOLCENGINE_SECRET_ACCESS_KEY;
-  const reqKey = env.VOLCENGINE_REQ_KEY || 'byteedit_v2.0';
+  let config: VolcengineConfig | null = null;
+
+  try {
+    config = getVolcengineConfig(env);
+  } catch {
+    config = null;
+  }
 
   return {
     name: 'local-generate-api',
@@ -246,9 +373,10 @@ function localGenerateApiPlugin(mode: string): Plugin {
         const url = new URL(req.url, 'http://127.0.0.1');
 
         if (req.method === 'POST' && url.pathname === '/api/generate') {
-          if (!accessKeyId || !secretAccessKey) {
+          if (!config) {
             sendJson(res, 500, {
-              error: 'VOLCENGINE_ACCESS_KEY_ID or VOLCENGINE_SECRET_ACCESS_KEY is missing',
+              error:
+                'VOLCENGINE_API_KEY/ARK_API_KEY or VOLCENGINE_ACCESS_KEY_ID/VOLCENGINE_SECRET_ACCESS_KEY is missing',
             });
             return;
           }
@@ -298,9 +426,7 @@ function localGenerateApiPlugin(mode: string): Plugin {
             void generateImagesInBackground(
               generation,
               body,
-              accessKeyId,
-              secretAccessKey,
-              reqKey,
+              config,
             ).catch((error) => {
               generation.failed_count = generation.generation_count;
               generation.status = 'failed';

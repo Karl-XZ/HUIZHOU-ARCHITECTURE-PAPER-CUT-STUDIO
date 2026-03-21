@@ -145,9 +145,7 @@ async function generateSingleCandidate(
     const resultImage = await callVolcengineImage(
       resolveCandidateUploadedImages(uploadedImages, candidate.imageIndexes),
       candidate.prompt,
-      config.reqKey,
-      config.accessKeyId,
-      config.secretAccessKey,
+      config,
     );
 
     const storedImageKey = imageKey(generationId, index);
