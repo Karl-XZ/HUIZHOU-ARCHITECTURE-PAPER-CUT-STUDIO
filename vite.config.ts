@@ -159,6 +159,25 @@ function getArkErrorMessage(payload: ArkImagesResponse, status: number) {
   );
 }
 
+function getLegacyArkCompatConfig(env: Record<string, string>) {
+  const accessKeyLike = env.VOLCENGINE_ACCESS_KEY_ID;
+  const modelIdLike = env.VOLCENGINE_REQ_KEY;
+
+  if (
+    accessKeyLike &&
+    modelIdLike &&
+    !accessKeyLike.startsWith('AK') &&
+    modelIdLike.toLowerCase().startsWith('doubao-')
+  ) {
+    return {
+      apiKey: accessKeyLike,
+      modelId: modelIdLike,
+    };
+  }
+
+  return null;
+}
+
 function getGenerationProgress(generation: StoredGeneration) {
   const success = generation.result_images.length;
   const failed = generation.failed_count;
@@ -305,6 +324,17 @@ function getVolcengineConfig(env: Record<string, string>): VolcengineConfig {
       provider: 'ark',
       apiKey,
       modelId: env.VOLCENGINE_MODEL_ID || env.ARK_MODEL_ID || DEFAULT_ARK_MODEL_ID,
+      baseUrl: env.VOLCENGINE_ARK_BASE_URL || env.ARK_BASE_URL || DEFAULT_ARK_BASE_URL,
+      watermark: false,
+    };
+  }
+
+  const legacyArkCompat = getLegacyArkCompatConfig(env);
+  if (legacyArkCompat) {
+    return {
+      provider: 'ark',
+      apiKey: legacyArkCompat.apiKey,
+      modelId: legacyArkCompat.modelId,
       baseUrl: env.VOLCENGINE_ARK_BASE_URL || env.ARK_BASE_URL || DEFAULT_ARK_BASE_URL,
       watermark: false,
     };

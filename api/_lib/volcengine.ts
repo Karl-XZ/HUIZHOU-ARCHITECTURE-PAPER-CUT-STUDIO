@@ -54,6 +54,25 @@ function getPreferredApiKey() {
   return process.env.VOLCENGINE_API_KEY || process.env.ARK_API_KEY;
 }
 
+function getLegacyArkCompatConfig() {
+  const accessKeyLike = process.env.VOLCENGINE_ACCESS_KEY_ID;
+  const modelIdLike = process.env.VOLCENGINE_REQ_KEY;
+
+  if (
+    accessKeyLike &&
+    modelIdLike &&
+    !accessKeyLike.startsWith('AK') &&
+    modelIdLike.toLowerCase().startsWith('doubao-')
+  ) {
+    return {
+      apiKey: accessKeyLike,
+      modelId: modelIdLike,
+    };
+  }
+
+  return null;
+}
+
 function normalizeArkBaseUrl(baseUrl: string) {
   return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
 }
@@ -225,6 +244,20 @@ export function getVolcengineConfig(): VolcengineConfig {
         process.env.VOLCENGINE_MODEL_ID ||
         process.env.ARK_MODEL_ID ||
         DEFAULT_ARK_MODEL_ID,
+      baseUrl:
+        process.env.VOLCENGINE_ARK_BASE_URL ||
+        process.env.ARK_BASE_URL ||
+        DEFAULT_ARK_BASE_URL,
+      watermark: false,
+    };
+  }
+
+  const legacyArkCompat = getLegacyArkCompatConfig();
+  if (legacyArkCompat) {
+    return {
+      provider: 'ark',
+      apiKey: legacyArkCompat.apiKey,
+      modelId: legacyArkCompat.modelId,
       baseUrl:
         process.env.VOLCENGINE_ARK_BASE_URL ||
         process.env.ARK_BASE_URL ||

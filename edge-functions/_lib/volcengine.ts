@@ -77,6 +77,25 @@ function getPreferredApiKey(context: EdgeOneFunctionContext) {
   return getEnvString(context, 'VOLCENGINE_API_KEY') || getEnvString(context, 'ARK_API_KEY');
 }
 
+function getLegacyArkCompatConfig(context: EdgeOneFunctionContext) {
+  const accessKeyLike = getEnvString(context, 'VOLCENGINE_ACCESS_KEY_ID');
+  const modelIdLike = getEnvString(context, 'VOLCENGINE_REQ_KEY');
+
+  if (
+    accessKeyLike &&
+    modelIdLike &&
+    !accessKeyLike.startsWith('AK') &&
+    modelIdLike.toLowerCase().startsWith('doubao-')
+  ) {
+    return {
+      apiKey: accessKeyLike,
+      modelId: modelIdLike,
+    };
+  }
+
+  return null;
+}
+
 function normalizeArkBaseUrl(baseUrl: string) {
   return baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl;
 }
@@ -264,6 +283,20 @@ export function getVolcengineConfig(context: EdgeOneFunctionContext): Volcengine
         getEnvString(context, 'VOLCENGINE_MODEL_ID') ||
         getEnvString(context, 'ARK_MODEL_ID') ||
         DEFAULT_ARK_MODEL_ID,
+      baseUrl:
+        getEnvString(context, 'VOLCENGINE_ARK_BASE_URL') ||
+        getEnvString(context, 'ARK_BASE_URL') ||
+        DEFAULT_ARK_BASE_URL,
+      watermark: false,
+    };
+  }
+
+  const legacyArkCompat = getLegacyArkCompatConfig(context);
+  if (legacyArkCompat) {
+    return {
+      provider: 'ark',
+      apiKey: legacyArkCompat.apiKey,
+      modelId: legacyArkCompat.modelId,
       baseUrl:
         getEnvString(context, 'VOLCENGINE_ARK_BASE_URL') ||
         getEnvString(context, 'ARK_BASE_URL') ||
