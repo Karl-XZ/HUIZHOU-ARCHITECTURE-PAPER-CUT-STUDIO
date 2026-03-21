@@ -78,7 +78,7 @@ type VolcengineConfig =
     };
 
 const generationStore = new Map<string, StoredGeneration>();
-const DEFAULT_ARK_MODEL_ID = 'doubao-seededit-3-0-i2i-250628';
+const DEFAULT_ARK_MODEL_ID = 'doubao-seedream-4-5-251128';
 const DEFAULT_ARK_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 
 function readRequestBody(req: NodeJS.ReadableStream): Promise<string> {
@@ -129,6 +129,26 @@ function normalizeArkBaseUrl(baseUrl: string) {
 
 function normalizeInputImage(image: string) {
   return image.startsWith('data:') ? image : `data:image/jpeg;base64,${image}`;
+}
+
+function isSeedEditModel(modelId: string) {
+  return modelId.toLowerCase().includes('seededit');
+}
+
+function buildArkImageInput(modelId: string, uploadedImages: string[]) {
+  const normalizedImages = uploadedImages
+    .filter((image): image is string => typeof image === 'string' && image.length > 0)
+    .map(normalizeInputImage);
+
+  if (normalizedImages.length === 0) {
+    throw new Error('At least one uploaded image is required');
+  }
+
+  if (isSeedEditModel(modelId) || normalizedImages.length === 1) {
+    return normalizedImages[0];
+  }
+
+  return normalizedImages.slice(0, 14);
 }
 
 function getArkErrorMessage(payload: ArkImagesResponse, status: number) {
@@ -237,10 +257,16 @@ async function callArkVolcengine(
   prompt: string,
   uploadedImages: string[],
 ) {
-  const primaryImage = uploadedImages.find((image) => typeof image === 'string' && image.length > 0);
-  if (!primaryImage) {
-    throw new Error('At least one uploaded image is required');
-  }
+  const image = buildArkImageInput(config.modelId, uploadedImages);
+  const requestBody = {
+    model: config.modelId,
+    prompt,
+    image,
+    size: '2K',
+    watermark: config.watermark,
+    response_format: 'url',
+    ...(isSeedEditModel(config.modelId) ? {} : { sequential_image_generation: 'disabled' }),
+  };
 
   const response = await fetch(`${normalizeArkBaseUrl(config.baseUrl)}/images/generations`, {
     method: 'POST',
@@ -248,14 +274,7 @@ async function callArkVolcengine(
       Authorization: `Bearer ${config.apiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      model: config.modelId,
-      prompt,
-      image: normalizeInputImage(primaryImage),
-      size: 'adaptive',
-      watermark: config.watermark,
-      response_format: 'url',
-    }),
+    body: JSON.stringify(requestBody),
   });
 
   const payload = (await response.json()) as ArkImagesResponse;
@@ -287,7 +306,7 @@ function getVolcengineConfig(env: Record<string, string>): VolcengineConfig {
       apiKey,
       modelId: env.VOLCENGINE_MODEL_ID || env.ARK_MODEL_ID || DEFAULT_ARK_MODEL_ID,
       baseUrl: env.VOLCENGINE_ARK_BASE_URL || env.ARK_BASE_URL || DEFAULT_ARK_BASE_URL,
-      watermark: true,
+      watermark: false,
     };
   }
 

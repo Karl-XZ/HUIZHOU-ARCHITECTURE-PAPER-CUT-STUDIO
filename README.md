@@ -7,6 +7,7 @@
 - 生产接口位于 `functions/api/*`
 - 任务状态和结果图片使用 `Cloudflare KV`
 - 首页提交后停留在首页，并逐张显示候选图
+- Ark API Key 默认走 `doubao-seedream-4-5-251128`，支持单图与多图输入
 
 ## 本地开发
 
@@ -31,7 +32,7 @@ cp .env.example .env.local
 - `VOLCENGINE_MODEL_ID`
 
 当前默认模型：
-- `doubao-seededit-3-0-i2i-250628`
+- `doubao-seedream-4-5-251128`
 
 兼容旧链路时也支持：
 - `VOLCENGINE_ACCESS_KEY_ID`
@@ -82,7 +83,7 @@ corepack pnpm dev -- --host 127.0.0.1 --port 5173
 - `functions/api/generations/[id].ts`：任务详情
 - `functions/api/generations/[id]/status.ts`：任务状态
 - `functions/_lib/storage.ts`：KV 存储适配
-- `functions/_lib/volcengine.ts`：Ark API Key / 旧 Visual AK/SK 双通道请求层
+- `functions/_lib/volcengine.ts`：Ark API Key / 旧 Visual AK/SK 双通道请求层，默认启用 Seedream 4.5 多图生图
 - `wrangler.jsonc`：Cloudflare Pages 配置
 
 ## 验证

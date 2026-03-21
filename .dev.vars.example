@@ -1,5 +1,5 @@
 VOLCENGINE_API_KEY=
-VOLCENGINE_MODEL_ID=doubao-seededit-3-0-i2i-250628
+VOLCENGINE_MODEL_ID=doubao-seedream-4-5-251128
 
 # Legacy fallback for the old Visual CVProcess path.
 VOLCENGINE_ACCESS_KEY_ID=

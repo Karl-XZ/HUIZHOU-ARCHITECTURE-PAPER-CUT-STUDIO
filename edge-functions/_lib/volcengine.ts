@@ -36,7 +36,7 @@ export type VolcengineConfig =
     };
 
 const encoder = new TextEncoder();
-const DEFAULT_ARK_MODEL_ID = 'doubao-seededit-3-0-i2i-250628';
+const DEFAULT_ARK_MODEL_ID = 'doubao-seedream-4-5-251128';
 const DEFAULT_ARK_BASE_URL = 'https://ark.cn-beijing.volces.com/api/v3';
 
 function toHex(data: ArrayBuffer | Uint8Array) {
@@ -93,6 +93,26 @@ function normalizeInputImage(image: string) {
   return image.startsWith('data:') ? image : `data:image/jpeg;base64,${image}`;
 }
 
+function isSeedEditModel(modelId: string) {
+  return modelId.toLowerCase().includes('seededit');
+}
+
+function buildArkImageInput(modelId: string, uploadedImages: string[]) {
+  const normalizedImages = uploadedImages
+    .filter((image): image is string => typeof image === 'string' && image.length > 0)
+    .map(normalizeInputImage);
+
+  if (normalizedImages.length === 0) {
+    throw new Error('At least one uploaded image is required');
+  }
+
+  if (isSeedEditModel(modelId) || normalizedImages.length === 1) {
+    return normalizedImages[0];
+  }
+
+  return normalizedImages.slice(0, 14);
+}
+
 async function arrayBufferToBase64(buffer: ArrayBuffer) {
   const bytes = new Uint8Array(buffer);
   const chunkSize = 0x8000;
@@ -111,9 +131,18 @@ async function callArkImage(
   prompt: string,
   config: Extract<VolcengineConfig, { provider: 'ark' }>,
 ) {
-  const primaryImage = uploadedImages.find((image) => typeof image === 'string' && image.length > 0);
-  if (!primaryImage) {
-    throw new Error('At least one uploaded image is required');
+  const image = buildArkImageInput(config.modelId, uploadedImages);
+  const requestBody: Record<string, unknown> = {
+    model: config.modelId,
+    prompt,
+    image,
+    size: '2K',
+    watermark: config.watermark,
+    response_format: 'url',
+  };
+
+  if (!isSeedEditModel(config.modelId)) {
+    requestBody.sequential_image_generation = 'disabled';
   }
 
   const response = await fetch(`${normalizeArkBaseUrl(config.baseUrl)}/images/generations`, {
@@ -122,14 +151,7 @@ async function callArkImage(
       Authorization: `Bearer ${config.apiKey}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({
-      model: config.modelId,
-      prompt,
-      image: normalizeInputImage(primaryImage),
-      size: 'adaptive',
-      watermark: config.watermark,
-      response_format: 'url',
-    }),
+    body: JSON.stringify(requestBody),
   });
 
   const payload = (await response.json()) as ArkImagesResponse;
@@ -246,7 +268,7 @@ export function getVolcengineConfig(context: EdgeOneFunctionContext): Volcengine
         getEnvString(context, 'VOLCENGINE_ARK_BASE_URL') ||
         getEnvString(context, 'ARK_BASE_URL') ||
         DEFAULT_ARK_BASE_URL,
-      watermark: true,
+      watermark: false,
     };
   }
 
